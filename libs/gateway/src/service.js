@@ -2,9 +2,11 @@ import { OpenAIProvider } from './providers/openai.js';
 import { GeminiProvider } from './providers/gemini.js';
 import { HuggingFaceProvider } from './providers/huggingface.js';
 import { LLMRequestSchema, ValidationError } from '@llm-governance/common';
+import { promptService as defaultPromptService } from '@llm-governance/prompts';
 
 export class GatewayService {
-  constructor() {
+  constructor(promptService = defaultPromptService) {
+    this.promptService = promptService;
     this.providers = new Map();
     this.registerProvider('openai', new OpenAIProvider({}));
     this.registerProvider('gemini', new GeminiProvider({}));
@@ -36,15 +38,37 @@ export class GatewayService {
     const providerName = config?.provider || 'openai';
     const provider = this.getProvider(providerName);
 
-    // 3. Prepare Messages (Simple text-to-message conversion for now)
-    // TODO: Integrate with @llm-governance/prompts for advanced templating
+    // 3. Prepare Messages
     let messages = [];
-    if (input.messages) {
+    
+    // If prompt_id is provided, fetch from registry
+    if (request.prompt_id) {
+      try {
+        const promptVersion = await this.promptService.getPrompt(request.prompt_id, request.env);
+        
+        // Simple template substitution
+        let content = promptVersion.template;
+        if (input) {
+          Object.entries(input).forEach(([key, value]) => {
+            content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
+          });
+        }
+        
+        messages = [{ role: 'user', content }];
+        
+        // Merge metadata/config from prompt if not overridden
+        if (promptVersion.metadata) {
+            // TODO: Merge config logic here
+        }
+      } catch (error) {
+        throw new ValidationError(`Failed to resolve prompt: ${error.message}`);
+      }
+    } else if (input.messages) {
       messages = input.messages;
     } else if (input.text) {
       messages = [{ role: 'user', content: input.text }];
     } else {
-      throw new ValidationError('Input must contain "text" or "messages"');
+      throw new ValidationError('Input must contain "text", "messages", or "prompt_id"');
     }
 
     // 4. Execute with Retry/Timeout (Placeholder for advanced logic)

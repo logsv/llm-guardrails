@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import cors from 'cors';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import llmRoutes from './routes/llm.js';
+import promptRoutes from './routes/prompts.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -17,10 +18,11 @@ app.use(requestIdMiddleware);
 
 // Routes
 app.use('/v1/llm', llmRoutes);
+app.use('/v1/prompts', promptRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Error handling middleware

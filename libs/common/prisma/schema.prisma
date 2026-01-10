@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Prompt {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  owner       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions    PromptVersion[]
+  environments PromptEnvBinding[]
+}
+
+model PromptVersion {
+  id        String   @id @default(uuid())
+  version   String   // e.g., "1.0.0", "v1"
+  template  String   // The actual prompt text/template
+  metadata  Json?    // Extra config (model, temperature, etc.)
+  createdAt DateTime @default(now())
+  
+  promptId  String
+  prompt    Prompt   @relation(fields: [promptId], references: [id])
+
+  bindings  PromptEnvBinding[]
+
+  @@unique([promptId, version])
+}
+
+model PromptEnvBinding {
+  id        String   @id @default(uuid())
+  env       String   // "prod", "dev", "test"
+  
+  promptId  String
+  prompt    Prompt   @relation(fields: [promptId], references: [id])
+  
+  versionId String
+  version   PromptVersion @relation(fields: [versionId], references: [id])
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([promptId, env])
+}
