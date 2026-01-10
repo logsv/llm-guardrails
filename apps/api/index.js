@@ -1,12 +1,10 @@
+import './config.js'; // Must be first
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import gateway from '@llm-governance/gateway';
-import prompts from '@llm-governance/prompts';
-
-dotenv.config();
+import { requestIdMiddleware } from './middleware/requestId.js';
+import llmRoutes from './routes/llm.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -15,17 +13,26 @@ app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(requestIdMiddleware);
+
+// Routes
+app.use('/v1/llm', llmRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
-// Import libs to verify they work
-app.get('/test-libs', (req, res) => {
-  res.json({
-    gateway: gateway.processRequest({}),
-    prompt: prompts.getPrompt('test'),
+// Error handling middleware
+app.use((err, req, res, next) => {
+  const statusCode = err.statusCode || 500;
+  res.status(statusCode).json({
+    error: {
+      code: err.code || 'INTERNAL_ERROR',
+      message: err.message,
+      details: err.details,
+      requestId: req.id,
+    },
   });
 });
 
