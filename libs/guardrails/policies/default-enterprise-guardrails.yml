@@ -1,0 +1,208 @@
+version: "1.0"
+
+metadata:
+  name: default-enterprise-guardrails
+  description: >
+    Industry-grade LLM guardrails covering security, safety, compliance,
+    data protection, and reliability.
+  owner: platform-team
+  last_updated: "2026-01-07"
+
+# ============================================================
+# INPUT GUARDRAILS (Pre-LLM)
+# ============================================================
+input:
+  size_limits:
+    max_characters: 16000
+    max_tokens_estimate: 4000
+    action: reject
+    error_code: INPUT_TOO_LARGE
+
+  language_allowlist:
+    enabled: true
+    allowed_languages: ["en"]
+    action: reject
+    error_code: UNSUPPORTED_LANGUAGE
+
+  pii_detection:
+    enabled: true
+    strategy: regex_and_heuristic
+    categories:
+      - email
+      - phone
+      - aadhaar
+      - pan
+      - credit_card
+      - bank_account
+      - passport
+    action: mask
+    mask_token: "[REDACTED]"
+    audit: true
+
+  secrets_detection:
+    enabled: true
+    patterns:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - private_key
+    action: reject
+    error_code: SECRET_LEAK_ATTEMPT
+    audit: true
+
+  prompt_injection:
+    enabled: true
+    patterns:
+      - "ignore previous instructions"
+      - "system prompt"
+      - "you are chatgpt"
+      - "bypass safety"
+    action: flag
+    audit: true
+
+# ============================================================
+# CONTEXT & TOOL USAGE GUARDRAILS
+# ============================================================
+context:
+  tool_access:
+    enabled: true
+    allowed_tools:
+      - search
+      - calculator
+    action_on_violation: reject
+    error_code: TOOL_NOT_ALLOWED
+
+  external_urls:
+    enabled: true
+    allowlist_domains:
+      - wikipedia.org
+      - gov.in
+    action_on_violation: flag
+
+# ============================================================
+# OUTPUT GUARDRAILS (Post-LLM)
+# ============================================================
+output:
+  schema_validation:
+    enabled: true
+    strict: true
+    on_failure: reject
+    error_code: INVALID_OUTPUT_SCHEMA
+
+  profanity_filter:
+    enabled: true
+    severity_threshold: medium
+    action: sanitize
+    audit: true
+
+  hallucination_detection:
+    enabled: true
+    strategy: heuristic
+    confidence_threshold: 0.6
+    action: flag
+    audit: true
+
+  factuality_check:
+    enabled: false
+    note: >
+      Disabled by default due to cost. Recommended for regulated domains.
+
+  sensitive_content:
+    enabled: true
+    categories:
+      - self_harm
+      - hate
+      - violence
+      - sexual_content
+    action: reject
+    error_code: SENSITIVE_CONTENT
+
+# ============================================================
+# BUSINESS & COMPLIANCE RULES
+# ============================================================
+compliance:
+  domains:
+    healthcare:
+      enabled: true
+      disallowed_claims:
+        - "medical diagnosis"
+        - "treatment recommendation"
+      safe_response_template: >
+        This information is for educational purposes only and
+        should not be considered medical advice.
+
+    finance:
+      enabled: true
+      disallowed_claims:
+        - "investment advice"
+        - "guaranteed returns"
+      safe_response_template: >
+        This content is not financial advice. Consult a qualified professional.
+
+  data_residency:
+    enabled: false
+    note: >
+      SaaS-only feature. Enforced at infrastructure layer.
+
+# ============================================================
+# RATE & COST PROTECTION
+# ============================================================
+usage:
+  rate_limits:
+    per_user:
+      requests_per_minute: 60
+      action: throttle
+
+    per_org:
+      requests_per_minute: 1000
+      action: throttle
+
+  cost_guardrails:
+    enabled: true
+    max_tokens_per_request: 3000
+    max_cost_usd_per_request: 0.10
+    action: reject
+    error_code: COST_LIMIT_EXCEEDED
+
+# ============================================================
+# LOGGING & AUDITABILITY
+# ============================================================
+audit:
+  enabled: true
+  log_inputs: false
+  log_outputs: true
+  log_metadata:
+    - prompt_id
+    - prompt_version
+    - model
+    - latency_ms
+    - tokens_used
+    - estimated_cost
+
+  retention_days: 30
+
+# ============================================================
+# FAILURE BEHAVIOR
+# ============================================================
+failure_handling:
+  on_guardrail_error: fail_closed
+  on_provider_error: retry_then_fail
+  max_retries: 2
+  fallback_response: >
+    The request could not be processed safely. Please try again later.
+
+# ============================================================
+# ENVIRONMENT OVERRIDES
+# ============================================================
+environments:
+  dev:
+    audit:
+      log_inputs: true
+    usage:
+      rate_limits:
+        per_user:
+          requests_per_minute: 200
+
+  prod:
+    prompt_injection:
+      action: reject

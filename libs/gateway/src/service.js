@@ -5,12 +5,17 @@ import { LLMRequestSchema, ValidationError } from '@llm-governance/common';
 import { promptService as defaultPromptService } from '@llm-governance/prompts';
 
 export class GatewayService {
-  constructor(promptService = defaultPromptService) {
+  constructor(promptService = defaultPromptService, guardrailsEngine = null) {
     this.promptService = promptService;
+    this.guardrailsEngine = guardrailsEngine;
     this.providers = new Map();
     this.registerProvider('openai', new OpenAIProvider({}));
     this.registerProvider('gemini', new GeminiProvider({}));
     this.registerProvider('huggingface', new HuggingFaceProvider({}));
+  }
+
+  setGuardrails(engine) {
+    this.guardrailsEngine = engine;
   }
 
   registerProvider(name, provider) {
@@ -34,7 +39,19 @@ export class GatewayService {
     }
     const { input, config } = parsed.data;
 
-    // 2. Resolve Provider
+    // 2. Guardrails Input Check
+    if (this.guardrailsEngine) {
+      try {
+        await this.guardrailsEngine.executeInput({ 
+          input: input || request, 
+          context: { request, env: request.env } 
+        });
+      } catch (error) {
+        throw error;
+      }
+    }
+
+    // 3. Resolve Provider
     const providerName = config?.provider || 'openai';
     const provider = this.getProvider(providerName);
 
@@ -78,7 +95,21 @@ export class GatewayService {
       params: config?.params,
     };
 
-    return await provider.generate(messages, options);
+    const result = await provider.generate(messages, options);
+
+    // 5. Guardrails Output Check
+    if (this.guardrailsEngine) {
+      const guardResult = await this.guardrailsEngine.executeOutput({ 
+        output: result, 
+        context: { request, config } 
+      });
+      
+      if (guardResult.output) {
+        return guardResult.output;
+      }
+    }
+
+    return result;
   }
 }
 

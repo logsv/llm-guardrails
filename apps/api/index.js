@@ -3,9 +3,26 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createEngine } from '@llm-governance/guardrails';
+import { gatewayService } from '@llm-governance/gateway';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import llmRoutes from './routes/llm.js';
 import promptRoutes from './routes/prompts.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Initialize Guardrails
+try {
+  const policyPath = path.resolve(__dirname, '../../libs/guardrails/policies/default-enterprise-guardrails.yml');
+  const engine = createEngine(policyPath);
+  gatewayService.setGuardrails(engine);
+  console.log('Guardrails engine initialized with policy:', policyPath);
+} catch (err) {
+  console.error('Failed to initialize guardrails:', err);
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
