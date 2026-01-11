@@ -43,6 +43,20 @@ const latencyHistogram = new prometheus.Histogram({
   registers: [register],
 });
 
+const evalRunCounter = new prometheus.Counter({
+  name: 'llm_evaluation_runs_total',
+  help: 'Total evaluation runs',
+  labelNames: ['dataset', 'status'],
+  registers: [register],
+});
+
+const evalRegressionCounter = new prometheus.Counter({
+  name: 'llm_evaluation_regressions_total',
+  help: 'Total detected regressions',
+  labelNames: ['dataset'],
+  registers: [register],
+});
+
 export class MetricsService {
   recordRequest({ env, provider, model, status, errorCode, latencyMs, tokensIn, tokensOut, cost }) {
     if (!config.enabled) return;
@@ -62,6 +76,14 @@ export class MetricsService {
 
     // 4. Latency
     if (latencyMs) latencyHistogram.observe(labels, latencyMs / 1000);
+  }
+
+  recordEvaluation({ dataset, status, isRegression }) {
+    if (!config.enabled) return;
+    evalRunCounter.inc({ dataset, status });
+    if (isRegression) {
+        evalRegressionCounter.inc({ dataset });
+    }
   }
 
   async getMetricsContentType() {
