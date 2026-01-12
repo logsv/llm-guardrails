@@ -1,5 +1,6 @@
 import { GuardrailsEngine, loadPolicy, validators } from '@llm-governance/guardrails';
 import { persistenceService, metricsService, calculateCost } from '@llm-governance/observability';
+import { gatewayService } from '@llm-governance/gateway';
 import { runWithContext } from './context.js';
 import path from 'path';
 import crypto from 'crypto';
@@ -25,7 +26,58 @@ export function init(config) {
         engine = new GuardrailsEngine(config.policy, validators);
     }
 
+    if (engine) {
+        gatewayService.setGuardrails(engine);
+    }
+
     initialized = true;
+}
+
+/**
+ * Invoke an LLM request through the governance gateway.
+ * Handles guardrails, policies, prompt versioning, and observability automatically.
+ * 
+ * @param {String|Object} input - User query string, or object with { messages } or { prompt_variables }
+ * @param {Object} options - Configuration options
+ * @param {String} [options.model] - Model to use (e.g., 'gpt-4')
+ * @param {String} [options.provider] - Provider to use (e.g., 'openai')
+ * @param {String} [options.prompt_id] - Managed Prompt ID to use
+ * @param {String} [options.env] - Environment (prod, dev, test)
+ * @param {Object} [options.config] - Additional provider config
+ * @returns {Promise<Object>} LLM Response
+ */
+export async function invoke(input, options = {}) {
+    if (!initialized && options.policyPath) {
+        init({ policyPath: options.policyPath });
+    }
+
+    // Map arguments to Gateway Request
+    const request = {
+        request_id: options.requestId || crypto.randomUUID(),
+        env: options.env || process.env.NODE_ENV || 'prod',
+        prompt_id: options.prompt_id,
+        config: {
+            provider: options.provider,
+            model: options.model,
+            params: options.params || options.config
+        }
+    };
+
+    // Handle Input Normalization
+    if (typeof input === 'string') {
+        if (request.prompt_id) {
+             // If using a managed prompt, map string to 'user_input' variable
+             request.input = { prompt_variables: { user_input: input } };
+        } else {
+             // Direct text execution
+             request.input = { text: input };
+        }
+    } else {
+        // Structured input (messages, prompt_variables, etc)
+        request.input = input;
+    }
+
+    return await gatewayService.execute(request);
 }
 
 export async function observe(options, fn) {

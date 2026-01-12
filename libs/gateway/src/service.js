@@ -63,9 +63,10 @@ export class GatewayService {
           throw new ValidationError('Invalid request schema', parsed.error.format());
         }
         const { input, config } = parsed.data;
+        const effectiveConfig = config || {};
         
-        providerName = config?.provider || 'openai';
-        model = config?.model || 'gpt-3.5-turbo'; // Default model
+        providerName = effectiveConfig.provider || 'openai';
+        model = effectiveConfig.model || 'gpt-3.5-turbo'; // Default model
         
         span.setAttribute('llm.provider', providerName);
         span.setAttribute('llm.model', model);
@@ -85,10 +86,7 @@ export class GatewayService {
           });
         }
 
-        // 3. Resolve Provider
-        const provider = this.getProvider(providerName);
-
-        // 3. Prepare Messages
+        // 3. Prepare Messages & Resolve Prompt (and potentially Provider)
         let messages = [];
         
         // If prompt_id is provided, fetch from registry
@@ -102,17 +100,39 @@ export class GatewayService {
 
                 // Simple template substitution
                 let content = promptVersion.template;
-                if (input) {
-                  Object.entries(input).forEach(([key, value]) => {
+                if (input && input.prompt_variables) {
+                  Object.entries(input.prompt_variables).forEach(([key, value]) => {
+                    content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
+                  });
+                } else if (input && !input.messages && !input.text) {
+                   // Fallback: if input is flat object, treat as variables
+                   Object.entries(input).forEach(([key, value]) => {
                     content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
                   });
                 }
                 
-                messages = [{ role: 'user', content }];
+                messages = [];
+
+                // 1. Add System Prompt if present in metadata
+                if (promptVersion.metadata && promptVersion.metadata.system_prompt) {
+                    messages.push({ role: 'system', content: promptVersion.metadata.system_prompt });
+                }
+
+                // 2. Add User Message (Template)
+                messages.push({ role: 'user', content });
                 
-                // Merge metadata/config from prompt if not overridden
+                // 3. Merge metadata/config from prompt if not overridden
                 if (promptVersion.metadata) {
-                    // TODO: Merge config logic here
+                    if (!effectiveConfig.model && promptVersion.metadata.model) {
+                        model = promptVersion.metadata.model;
+                        effectiveConfig.model = model;
+                    }
+                    if (!effectiveConfig.provider && promptVersion.metadata.provider) {
+                        providerName = promptVersion.metadata.provider;
+                        effectiveConfig.provider = providerName;
+                    }
+                    // Merge params (temperature, etc)
+                    effectiveConfig.params = { ...promptVersion.metadata.parameters, ...effectiveConfig.params };
                 }
               } catch (error) {
                 throw new ValidationError(`Failed to resolve prompt: ${error.message}`);
@@ -126,13 +146,16 @@ export class GatewayService {
           throw new ValidationError('Input must contain "text", "messages", or "prompt_id"');
         }
 
+        // 4. Resolve Provider (After prompt resolution in case provider changed)
+        const provider = this.getProvider(providerName);
+
         // Calculate Input Tokens (Approximate)
         tokensIn = JSON.stringify(messages).length / 4; 
 
-        // 4. Execute with Retry/Timeout
+        // 5. Execute with Retry/Timeout
         const options = {
           model: model,
-          params: config?.params,
+          params: effectiveConfig.params,
         };
 
         let result = await startSpan('llm.generate', {}, async () => {

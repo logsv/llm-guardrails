@@ -82,8 +82,12 @@ export class GuardrailsEngine {
           context 
         });
         
-        if (result && result.sanitized) {
-            currentOutput = result.sanitized;
+        if (result) {
+            if (result.output) {
+                currentOutput = result.output;
+            } else if (result.sanitized) {
+                currentOutput = result.sanitized;
+            }
         }
       } catch (err) {
         if (err instanceof GuardrailViolation) {

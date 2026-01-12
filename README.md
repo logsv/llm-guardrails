@@ -30,23 +30,26 @@ This library provides a unique, drop-in SDK for Large Language Model (LLM) gover
 
 ## 🏗️ Architecture
 
-The SDK follows a "Producer-Consumer" model to ensure high performance and reliability:
+The SDK follows a "Producer-Consumer" model to ensure high performance and reliability. Heavy lifting (logging, persistence) is offloaded to a background worker.
 
 ```mermaid
-graph LR
-    subgraph "Your Application"
-        Code[User Code] --> SDK[LLM Governance SDK]
-        SDK -->|Intercept| Guardrails[Guardrails Engine]
-        SDK -->|Async Log| Queue["Local Queue (Redis)"]
+graph TD
+    subgraph "Your Application (Node.js)"
+        UserCode[User Logic] -->|Call| SDK[Governance SDK]
+        SDK -->|1. Validate| Guardrails[Guardrails Engine]
+        SDK -->|2. Execute| LLM[LLM Provider]
+        SDK -->|3. Async Log| QueueProd[Redis Producer]
     end
 
-    subgraph "Background Infrastructure"
-        Queue --> Worker[Worker Service]
-        Worker --> DB[("Postgres")]
-        Worker --> Metrics[Prometheus]
+    subgraph "Infrastructure"
+        Queue[Redis Queue]
+        Worker[Worker Service]
+        DB[(Postgres DB)]
     end
-    
-    SDK -.->|LLM Call| OpenAI[LLM Provider]
+
+    QueueProd -.->|Fire & Forget| Queue
+    Queue -->|Consume| Worker
+    Worker -->|Persist| DB
 ```
 
 ## 🛠️ Getting Started
@@ -106,8 +109,89 @@ const response = await llm.observe({
 });
 ```
 
-### 5. Prompt Management & Evaluation
+### 5. Using llm.invoke (Gateway Mode)
+The `invoke` method abstracts the provider and governance logic completely. It handles:
+- **Guardrails**: Checks inputs and outputs against your policy.
+- **Prompt Management**: Resolves managed prompts and versions.
+- **Provider Switching**: Routes to the configured provider (OpenAI, Gemini, etc.).
+- **Observability**: Automatically logs traces and metrics.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SDK
+    participant Guardrails
+    participant PromptRegistry
+    participant LLM as LLM Provider
+
+    User->>SDK: llm.invoke(input, { prompt_id })
+    
+    rect rgb(240, 248, 255)
+    Note over SDK, Guardrails: Pre-Execution Phase
+    SDK->>Guardrails: Check Input (PII, Secrets)
+    Guardrails-->>SDK: Approved / Modified
+    end
+    
+    SDK->>PromptRegistry: Resolve Prompt Version (env=prod)
+    PromptRegistry-->>SDK: Template + Config + System Prompt
+
+    SDK->>LLM: Generate(Messages, Config)
+    LLM-->>SDK: Response Content
+
+    rect rgb(255, 240, 245)
+    Note over SDK, Guardrails: Post-Execution Phase
+    SDK->>Guardrails: Check Output (PII Masking)
+    Guardrails-->>SDK: Sanitized Output
+    end
+
+    SDK->>User: Final Response
+```
+
+```javascript
+// A. Direct Execution (Simple Text)
+const response = await llm.invoke("What is the capital of France?", {
+    provider: 'openai',
+    model: 'gpt-4'
+});
+
+// B. Using a Managed Prompt
+// The SDK fetches the prompt 'customer-service-bot', applies the version bound to 'prod',
+// injects the input into {{user_input}}, and uses the model/provider defined in the prompt.
+const response = await llm.invoke("How do I reset my password?", {
+    prompt_id: 'customer-service-bot',
+    env: 'prod' 
+});
+
+// C. Advanced Input (Prompt Variables)
+const response = await llm.invoke({
+    prompt_variables: {
+        name: "Alice",
+        topic: "Billing"
+    }
+}, {
+    prompt_id: 'personalized-greeting'
+});
+```
+
+### 6. Prompt Management & Evaluation
 Manage prompts and run evaluations separately from your main application flow.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: Create Prompt
+    Draft --> Versioned: Add Version (v1.0)
+    
+    state "Evaluation Phase" as Eval {
+        Versioned --> Running: Run Evaluation
+        Running --> Scored: Compare vs Golden Dataset
+    }
+    
+    Scored --> Published: Score > Threshold
+    Scored --> Draft: Score < Threshold (Refine)
+    
+    Published --> Production: Bind to Env (Prod)
+    Production --> [*]
+```
 
 ```javascript
 // 1. Create a Prompt and Add a Version
@@ -143,7 +227,7 @@ const results = await llm.evaluation.run({
 console.log(`Evaluation Score: ${results.scores.overall}`);
 ```
 
-### 6. Run the Demos
+### 7. Run the Demos
 
 **SDK Instrumentation Demo:**
 ```bash
@@ -154,6 +238,16 @@ node examples/sdk-demo.js
 ```bash
 # Runs with a Mock Provider to simulate LLM and Judge responses
 NODE_ENV=test node examples/eval-demo.js
+```
+
+**Gateway Feature Demo:**
+```bash
+node examples/gateway-feature-demo.js
+```
+
+**Invoke Method Demo:**
+```bash
+node examples/invoke-demo.js
 ```
 
 ## ⚙️ Configuration

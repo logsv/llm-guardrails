@@ -48,17 +48,25 @@ export const piiValidator = {
      }
 
      if (hasPII) {
-         if (config.action === 'reject') {
-             throw new GuardrailViolation('PII detected', {
-                 guardrail: 'pii_detection',
-                 type: 'pii_found',
-                 value: detected,
-                 metadata: { categories: detected }
-             });
-         } else if (config.action === 'mask') {
-             return { sanitized: maskedText };
-         }
-         // Flag or other actions just return (maybe with metadata, but engine ignores simple return)
-     }
-  }
+            if (config.action === 'reject') {
+                throw new GuardrailViolation('PII detected', {
+                    guardrail: 'pii_detection',
+                    type: 'pii_found',
+                    value: detected,
+                    metadata: { categories: detected }
+                });
+            } else if (config.action === 'mask') {
+                // If the target was an object, try to parse the masked string back to an object
+                if (typeof target === 'object' && target !== null) {
+                    try {
+                        return { output: JSON.parse(maskedText) };
+                    } catch (e) {
+                        // If parsing fails, return the string
+                        return { output: maskedText };
+                    }
+                }
+                return { output: maskedText };
+            }
+        }
+    }
 };
