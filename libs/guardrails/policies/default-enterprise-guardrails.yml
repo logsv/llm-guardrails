@@ -83,6 +83,16 @@ context:
 # OUTPUT GUARDRAILS (Post-LLM)
 # ============================================================
 output:
+  pii_detection:
+    enabled: true
+    categories:
+      - email
+      - phone
+      - credit_card
+    action: mask
+    mask_token: "[REDACTED]"
+    audit: true
+
   schema_validation:
     enabled: true
     strict: true

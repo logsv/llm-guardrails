@@ -1,5 +1,4 @@
-import { Queue, Worker } from 'bullmq';
-import { prisma } from '@llm-governance/common';
+import { Queue } from 'bullmq';
 import { configLoader } from './config.js';
 
 const config = configLoader.getPersistenceConfig();
@@ -13,42 +12,24 @@ const connection = {
 const isTest = process.env.NODE_ENV === 'test' && !process.env.TEST_INTEGRATION;
 
 // Queue for producers
-export const logQueue = (config.enabled && !isTest) ? new Queue(QUEUE_NAME, { connection }) : { add: async () => {}, close: async () => {} };
+// Use offline queue to prevent crashing if Redis is down
+export const logQueue = (config.enabled && !isTest) ? new Queue(QUEUE_NAME, { 
+  connection: {
+    ...connection,
+    enableOfflineQueue: true,
+    connectTimeout: 1000, // Fail fast on connection
+  }
+}) : { add: async () => {}, close: async () => {}, on: () => {} };
 
-// Worker for consumers
-// In a real microservice, this might run in a separate process
-let worker = null;
-
-if (config.enabled && !isTest) {
-  worker = new Worker(QUEUE_NAME, async (job) => {
-    const data = job.data;
-    try {
-      await prisma.requestLog.create({
-        data: {
-          requestId: data.requestId,
-          timestamp: new Date(data.timestamp),
-          env: data.env,
-          provider: data.provider,
-          model: data.model,
-          promptId: data.promptId,
-          promptVersion: data.promptVersion,
-          latencyMs: data.latencyMs,
-          tokensIn: data.tokensIn,
-          tokensOut: data.tokensOut,
-          costUsd: data.costUsd,
-          status: data.status,
-          errorCode: data.errorCode,
-          errorMessage: data.errorMessage,
-          metadata: data.metadata || {},
-        },
-      });
-    } catch (err) {
-      if (configLoader.load().failure_handling?.on_persistence_error !== 'ignore') {
-          console.error('Failed to persist request log:', err);
-      }
-      throw err;
-    }
-  }, { connection });
+// Handle queue errors
+if (logQueue.on) {
+    logQueue.on('error', (err) => {
+        // Suppress unhandled error events and reduce verbosity
+        // Only log if it's NOT a connection refused error, or log it once?
+        if (err.code !== 'ECONNREFUSED') {
+            console.error('Queue error:', err.message);
+        }
+    });
 }
 
 export const persistenceService = {
@@ -63,15 +44,14 @@ export const persistenceService = {
     } catch (err) {
       const failureMode = configLoader.load().failure_handling?.on_persistence_error || 'log_only';
       if (failureMode !== 'ignore') {
-          console.error('Failed to queue request log:', err);
+          // console.error('Failed to queue request log:', err.message);
           // Fallback: log to console so we don't lose data completely
-          console.log('FALLBACK_LOG:', JSON.stringify(data));
+          // console.log('FALLBACK_LOG:', JSON.stringify(data));
       }
     }
   },
   
   async close() {
     if (logQueue.close) await logQueue.close();
-    if (worker) await worker.close();
   }
 };

@@ -1,0 +1,12 @@
+{
+  "name": "@llm-governance/sdk",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@llm-governance/common": "*",
+    "@llm-governance/guardrails": "*",
+    "@llm-governance/observability": "*",
+    "js-yaml": "^4.1.0"
+  }
+}

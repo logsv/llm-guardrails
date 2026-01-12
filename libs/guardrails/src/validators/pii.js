@@ -9,30 +9,56 @@ const PATTERNS = {
 };
 
 export const piiValidator = {
-  validate: async ({ input, config }) => {
+  validate: async ({ input, output, config }) => {
+     const target = output !== undefined ? output : input;
      let text = '';
-     if (typeof input === 'string') text = input;
-     else if (input.messages) text = JSON.stringify(input.messages);
-     else if (input.text) text = input.text;
+     
+     if (typeof target === 'string') {
+         text = target;
+     } else if (target && typeof target === 'object') {
+         try {
+             text = JSON.stringify(target);
+         } catch (e) {
+             text = String(target);
+         }
+     } else {
+         text = String(target || '');
+     }
 
      const detected = [];
-     
      const categories = config.categories || Object.keys(PATTERNS);
+     let maskedText = text;
+     let hasPII = false;
      
      for (const cat of categories) {
          const regex = PATTERNS[cat];
-         if (regex && regex.test(text)) {
-             detected.push(cat);
+         if (regex) {
+             // Reset regex state
+             regex.lastIndex = 0;
+             if (regex.test(text)) {
+                 detected.push(cat);
+                 hasPII = true;
+                 if (config.action === 'mask') {
+                     // Reset again for replace
+                     regex.lastIndex = 0;
+                     maskedText = maskedText.replace(regex, config.mask_token || '[REDACTED]');
+                 }
+             }
          }
      }
 
-     if (detected.length > 0) {
-         throw new GuardrailViolation('PII detected', {
-             guardrail: 'pii_detection',
-             type: 'pii_found',
-             value: detected,
-             metadata: { categories: detected }
-         });
+     if (hasPII) {
+         if (config.action === 'reject') {
+             throw new GuardrailViolation('PII detected', {
+                 guardrail: 'pii_detection',
+                 type: 'pii_found',
+                 value: detected,
+                 metadata: { categories: detected }
+             });
+         } else if (config.action === 'mask') {
+             return { sanitized: maskedText };
+         }
+         // Flag or other actions just return (maybe with metadata, but engine ignores simple return)
      }
   }
 };

@@ -1,76 +1,47 @@
-# LLM Governance Platform
+# LLM Governance SDK
 
-> **Enterprise-grade Gateway for managing, securing, and observing LLM applications.**
+> **Enterprise-grade in-process instrumentation for securing, observing, and managing LLM applications.**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)
 ![Status](https://img.shields.io/badge/status-beta-orange.svg)
 
-This platform provides a centralized control plane for Large Language Model (LLM) adoption in the enterprise. It solves the "Day 2" problems of LLM integration: **Cost, Security, Quality, and Observability**.
+This library provides a drop-in SDK for Large Language Model (LLM) governance. Inspired by APM tools like New Relic, it wraps your existing LLM calls to automatically enforce security guardrails, track costs, and record audit logs—without routing traffic through a centralized gateway.
 
 ## 🚀 Features
 
 ### 🛡️ Guardrails & Security
-- **PII Detection**: Automatically redact or block requests containing sensitive data.
-- **Prompt Injection**: Detect and prevent jailbreak attempts.
-- **Policy Enforcement**: Configurable rules for input/output size, profanity, and secrets.
-
-### 📝 Prompt Management
-- **Versioning**: Git-like versioning for prompts.
-- **Environment Promotion**: Move prompts from `dev` -> `stage` -> `prod`.
-- **Templating**: Dynamic variable substitution using Mustache syntax.
+- **In-Process Protection**: Validates inputs and outputs directly within your application process.
+- **PII Detection & Masking**: Automatically redacts sensitive data (Email, Phone, Credit Cards) from model responses.
+- **Secret Detection**: Blocks requests containing API keys or private tokens.
+- **Policy as Code**: Define rules in `YAML` files that live with your code or centrally.
 
 ### 👁️ Observability & Cost
+- **Zero-Latency Logging**: Telemetry is offloaded asynchronously to a local queue (BullMQ).
 - **Distributed Tracing**: OpenTelemetry integration for full request visibility.
-- **Metrics**: Prometheus endpoints for latency, throughput, and error rates.
 - **Cost Attribution**: Real-time cost calculation per provider, model, and prompt.
-- **Audit Logs**: Persistent logs of every request and response in PostgreSQL.
+- **Resilient Persistence**: Dedicated Worker service handles database writes; your app stays up even if the DB is down.
 
-### ⚖️ Evaluation & Regression Testing
-- **Golden Datasets**: Manage versioned test sets.
-- **LLM-as-Judge**: Automated quality scoring (Relevance, Accuracy, Hallucination).
-- **Regression Detection**: Catch quality drops before production rollout.
+### 🏗️ Architecture
 
----
-
-## 🏗️ Architecture
-
-The platform follows a modular Monorepo architecture:
+The SDK follows a "Producer-Consumer" model to ensure high performance and reliability:
 
 ```mermaid
-graph TD
-    Client[Client App] --> Gateway[LLM Gateway API]
-    
-    subgraph "Core Services"
-        Gateway --> Guardrails[Guardrails Engine]
-        Gateway --> Prompts[Prompt Registry]
-        Gateway --> Router[Model Router]
+graph LR
+    subgraph "Your Application"
+        Code[User Code] --> SDK[LLM Governance SDK]
+        SDK -->|Intercept| Guardrails[Guardrails Engine]
+        SDK -->|Async Log| Queue[Local Queue (Redis)]
+    end
+
+    subgraph "Background Infrastructure"
+        Queue --> Worker[Worker Service]
+        Worker --> DB[(Postgres)]
+        Worker --> Metrics[Prometheus]
     end
     
-    subgraph "Observability"
-        Gateway --> Metrics[Prometheus Metrics]
-        Gateway --> Tracing[OpenTelemetry]
-        Gateway --> Queue[Async Log Queue]
-    end
-    
-    subgraph "Evaluation"
-        EvalWorker[Eval Worker] --> Judge[LLM Judge]
-        EvalWorker --> DB[(Postgres)]
-    end
-    
-    Queue --> DB
-    Router --> Providers["LLM Providers (OpenAI, Gemini, etc.)"]
+    SDK -.->|LLM Call| OpenAI[LLM Provider]
 ```
-
-### Request Lifecycle
-1. **Auth & Context**: Request arrives, authenticated, and tagged with metadata.
-2. **Prompt Resolution**: Template is fetched from Registry (if `prompt_id` provided).
-3. **Guardrails (Input)**: Input is scanned for PII, injections, etc.
-4. **Routing**: Request is dispatched to the configured Provider (OpenAI, etc.).
-5. **Guardrails (Output)**: Response is scanned before returning to client.
-6. **Async Observability**: Metrics recorded; Logs pushed to Redis queue -> Postgres.
-
----
 
 ## 🛠️ Getting Started
 
@@ -78,85 +49,96 @@ graph TD
 - **Node.js 20+**
 - **Docker & Docker Compose** (for Redis/Postgres)
 
-### Quick Start
+### 1. Installation
 
-1. **Clone & Install**
-   ```bash
-   git clone https://github.com/your-org/llm-governance.git
-   cd llm-governance
-   npm install
-   ```
+```bash
+# Clone the repo (Monorepo setup)
+git clone https://github.com/your-org/llm-governance.git
+cd llm-governance
+npm install
+```
 
-2. **Start Infrastructure**
-   ```bash
-   docker-compose up -d
-   ```
+### 2. Start Infrastructure
+Start Redis (for the queue) and Postgres (for logs).
 
-3. **Initialize Database**
-   ```bash
-   npx prisma db push --schema=libs/common/prisma/schema.prisma
-   ```
+```bash
+docker-compose up -d
+npx prisma db push --schema=libs/common/prisma/schema.prisma
+```
 
-4. **Start the Gateway**
-   ```bash
-   npm start
-   ```
-   *Server runs on http://localhost:3000*
+### 3. Start the Worker Service
+The worker consumes logs from the queue and persists them to the database.
 
-5. **Run Demo Client**
-   ```bash
-   node examples/client-demo.js
-   ```
+```bash
+npm start -w apps/worker
+```
 
----
+### 4. Use the SDK in Your App
+
+Initialize the SDK and wrap your LLM calls.
+
+```javascript
+import llm from '@llm-governance/sdk';
+
+// 1. Initialize with your policy
+llm.init({
+    policyPath: './path/to/guardrails.yml'
+});
+
+// 2. Wrap your LLM calls
+const response = await llm.observe({
+    input: "User prompt",
+    model: "gpt-4",
+    provider: "openai",
+    metadata: { user_id: "123" }
+}, async () => {
+    // Your existing code (e.g., OpenAI SDK)
+    return await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "User prompt" }]
+    });
+});
+```
+
+### 5. Run the Demo
+
+See the SDK in action with a simulated LLM provider:
+
+```bash
+node examples/sdk-demo.js
+```
 
 ## ⚙️ Configuration
 
-The platform is configured via `observability.yaml` and environment variables.
+### Guardrails Policy
+Define your security rules in a YAML file (e.g., `policies/default.yml`):
 
-### Environment Variables (.env)
-```env
-PORT=3000
-DATABASE_URL="postgresql://user:password@localhost:5432/llm_governance"
-REDIS_HOST="localhost"
-OPENAI_API_KEY="sk-..."
-```
-
-### Observability Config (observability.yaml)
-Control metrics, tracing sampling, and cost rates without code changes.
 ```yaml
-metrics:
-  enabled: true
-cost_tracking:
-  providers:
-    openai:
-      models:
-        gpt-4:
-          input_cost_per_1k_tokens: 0.03
+input:
+  secrets_detection:
+    enabled: true
+    action: reject
+
+output:
+  pii_detection:
+    enabled: true
+    categories: [email, phone]
+    action: mask
+    mask_token: "[REDACTED]"
 ```
 
----
+## 📊 Comparison
 
-## 📊 Trade-offs & Comparisons
-
-| Feature | LLM Governance (This Repo) | LangChain | Helicone / LangSmith |
-| :--- | :--- | :--- | :--- |
-| **Focus** | Enterprise Gateway & Control Plane | Application Framework | Observability SaaS |
-| **Deployment** | Self-hosted / Private Cloud | Library (Client-side) | SaaS (mostly) |
-| **Guardrails** | First-class, Proxy-level | Library-level | Post-hoc analysis |
-| **Latency** | Low (Async logging) | N/A | Variable |
-| **Cost** | Free (OSS) | Free (OSS) | Paid SaaS |
-
-**Why use this?**
-- You need **strict compliance** (PII, audit logs) within your VPC.
-- You want to **decouple** prompts from application code.
-- You want a **unified API** for swapping providers without redeploying apps.
-
----
+| Feature | Gateway Approach (Old) | SDK Approach (New) |
+| :--- | :--- | :--- |
+| **Integration** | Requires changing API endpoints | Import library, wrap code |
+| **Latency** | Network hop added | Microseconds (In-process) |
+| **Failure Mode** | Gateway down = App down | DB down = App keeps working (Async queue) |
+| **Complexity** | High (Separate service to manage) | Low (Part of your app) |
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on setting up your dev environment and submitting PRs.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## 📄 License
 
