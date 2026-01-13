@@ -57,15 +57,24 @@ export const piiValidator = {
                 });
             } else if (config.action === 'mask') {
                 // If the target was an object, try to parse the masked string back to an object
+                let finalOutput = maskedText;
                 if (typeof target === 'object' && target !== null) {
                     try {
-                        return { output: JSON.parse(maskedText) };
+                        finalOutput = JSON.parse(maskedText);
                     } catch (e) {
-                        // If parsing fails, return the string
-                        return { output: maskedText };
+                        finalOutput = maskedText;
                     }
                 }
-                return { output: maskedText };
+                
+                return { 
+                    output: finalOutput,
+                    violation: {
+                        guardrail: 'pii_detection',
+                        type: 'pii_masked',
+                        value: detected,
+                        message: 'PII detected and masked'
+                    }
+                };
             }
         }
     }

@@ -4,16 +4,13 @@
   "type": "module",
   "private": true,
   "workspaces": [
-    "apps/*",
     "libs/*"
   ],
   "scripts": {
-    "start:worker": "npm start -w apps/worker",
     "test": "npm test --workspaces",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "boot": "docker-compose up -d && npm run start:worker"
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "eslint": "^8.57.1",
@@ -23,8 +20,5 @@
     "eslint-plugin-prettier": "^5.5.4",
     "nodemon": "^3.0.0",
     "prettier": "^3.7.4"
-  },
-  "dependencies": {
-    "@prisma/client": "^5.10.0"
   }
 }

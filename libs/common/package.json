@@ -4,12 +4,7 @@
   "type": "module",
   "main": "index.js",
   "dependencies": {
-    "@prisma/client": "^5.10.0",
-    "ioredis": "^5.9.1",
     "uuid": "^11.1.0",
     "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "prisma": "^5.10.0"
   }
 }

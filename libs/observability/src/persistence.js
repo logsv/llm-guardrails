@@ -1,57 +1,34 @@
-import { Queue } from 'bullmq';
-import { configLoader } from './config.js';
-
-const config = configLoader.getPersistenceConfig();
-
-const QUEUE_NAME = 'request-logs';
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-};
-
-const isTest = process.env.NODE_ENV === 'test' && !process.env.TEST_INTEGRATION;
-
-// Queue for producers
-// Use offline queue to prevent crashing if Redis is down
-export const logQueue = (config.enabled && !isTest) ? new Queue(QUEUE_NAME, { 
-  connection: {
-    ...connection,
-    enableOfflineQueue: true,
-    connectTimeout: 1000, // Fail fast on connection
-  }
-}) : { add: async () => {}, close: async () => {}, on: () => {} };
-
-// Handle queue errors
-if (logQueue.on) {
-    logQueue.on('error', (err) => {
-        // Suppress unhandled error events and reduce verbosity
-        // Only log if it's NOT a connection refused error, or log it once?
-        if (err.code !== 'ECONNREFUSED') {
-            console.error('Queue error:', err.message);
-        }
-    });
-}
 
 export const persistenceService = {
   async logRequest(data) {
-    if (!config.enabled) return;
+    // Simple Console Logger for Guardrail Observability
+    const timestamp = new Date().toISOString();
+    let status = 'PASSED';
+    if (data.status === 'error') status = 'ERROR';
+    if (data.status === 'blocked') status = 'BLOCKED';
     
-    try {
-      await logQueue.add('log', data, {
-        removeOnComplete: true,
-        removeOnFail: 5000, // Keep failed jobs for 5s
-      });
-    } catch (err) {
-      const failureMode = configLoader.load().failure_handling?.on_persistence_error || 'log_only';
-      if (failureMode !== 'ignore') {
-          // console.error('Failed to queue request log:', err.message);
-          // Fallback: log to console so we don't lose data completely
-          // console.log('FALLBACK_LOG:', JSON.stringify(data));
-      }
+    const color = status === 'PASSED' ? '\x1b[32m' : '\x1b[31m'; // Green or Red
+    const reset = '\x1b[0m';
+
+    console.log(`\n[${timestamp}] Guardrail Check: ${color}${status}${reset}`);
+    
+    if (data.guardrail_violations && data.guardrail_violations.length > 0) {
+        console.log("Violations:");
+        data.guardrail_violations.forEach(v => {
+            console.log(`  - [${v.guardrail}] ${v.message}`);
+            if (v.value) console.log(`    Value: ${JSON.stringify(v.value)}`);
+        });
+    } else {
+        console.log("  - All checks passed.");
     }
+    
+    if (data.tokensIn) {
+        console.log(`  Usage: ${data.tokensIn} tokens in, ${data.tokensOut} tokens out`);
+    }
+    console.log(`  Latency: ${data.latencyMs}ms`);
   },
   
   async close() {
-    if (logQueue.close) await logQueue.close();
+    // No-op
   }
 };

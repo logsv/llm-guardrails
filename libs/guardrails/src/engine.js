@@ -88,6 +88,10 @@ export class GuardrailsEngine {
             } else if (result.sanitized) {
                 currentOutput = result.sanitized;
             }
+            
+            if (result.violation) {
+                violations.push(new GuardrailViolation(result.violation.message, result.violation));
+            }
         }
       } catch (err) {
         if (err instanceof GuardrailViolation) {
