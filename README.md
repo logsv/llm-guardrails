@@ -14,7 +14,13 @@ This library provides a unique, drop-in SDK for Large Language Model (LLM) guard
 - **In-Process Protection**: Validates inputs and outputs directly within your application process with zero network latency.
 - **PII Detection & Masking**: Automatically redacts sensitive data (Email, Phone, Credit Cards) from model responses based on configurable policies.
 - **Secret Detection**: Blocks requests containing API keys or private tokens before they reach the model.
+- **Toxicity Detection**: Filters harmful content using local models (BERT) or OpenAI Moderation API.
+- **Schema Validation & Repair**: Ensures outputs match JSON schemas and automatically repairs malformed JSON.
 - **Policy as Code**: Define rules in `YAML` files that live with your code.
+
+### 🤖 Reliability & Control
+- **Automatic Retries**: Automatically re-prompts the LLM if output validation fails (e.g., invalid JSON), up to a configurable limit.
+- **Flexible Actions**: Configure actions like `reject`, `flag`, `mask`, or `retry` for each guardrail.
 
 ### 👁️ Guardrail Observability
 - **Real-time Logging**: Automatically logs guardrail checks (Pass/Fail/Violations) to the console for easy monitoring.
@@ -72,6 +78,7 @@ const response = await llm.observe({
     input: "User prompt",
     model: "gpt-4", // optional
     provider: "openai", // optional
+    maxRetries: 3, // Enable retries for validation failures
     metadata: { user_id: "123" }
 }, async () => {
     // Your existing code (e.g., OpenAI SDK)
@@ -99,6 +106,15 @@ output:
     categories: [email, phone]
     action: mask
     mask_token: "[REDACTED]"
+
+  toxicity_detection:
+    enabled: true
+    provider: 'openai' # or 'local'
+    action: reject
+
+  schema_validation:
+    enabled: true
+    action: retry # Automatically retry if schema validation fails
 ```
 
 ## 🤝 Contributing

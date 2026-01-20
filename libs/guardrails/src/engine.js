@@ -1,4 +1,4 @@
-import { GuardrailViolation } from './errors.js';
+import { GuardrailViolation, RetryRequest } from './errors.js';
 
 export class GuardrailsEngine {
   constructor(policy, validators) {
@@ -99,6 +99,11 @@ export class GuardrailsEngine {
             const action = config.action || 'reject';
             if (action === 'reject') {
                 throw err;
+            }
+            if (action === 'retry') {
+                throw new RetryRequest('Guardrail requested retry', {
+                    guardrail: key
+                });
             }
         } else {
             throw err;

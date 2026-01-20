@@ -8,3 +8,12 @@ export class GuardrailViolation extends Error {
     this.metadata = metadata;
   }
 }
+
+export class RetryRequest extends Error {
+    constructor(message, { guardrail, prompt } = {}) {
+        super(message);
+        this.name = 'RetryRequest';
+        this.guardrail = guardrail;
+        this.prompt = prompt; // Optional: new prompt/input to use
+    }
+}
